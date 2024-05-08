@@ -1,7 +1,7 @@
-LDFLAGS := -L/usr/lib
-CFLAGS := -I/usr/include
+LDFLAGS := -L/usr/lib -L/usr/local/lib
+CFLAGS := -I/usr/include -I/usr/local/include
 LDLIBS := -ldb
-LD := gcc
+LD := clang
 
 transp: transpose.c
-	${LD} -o $@ $^ ${LDFLAGS} ${LDLIBS} ${CFLAGS}
+	${LD} -o $@ transpose.c ${LDFLAGS} ${LDLIBS} ${CFLAGS}

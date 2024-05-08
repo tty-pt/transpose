@@ -118,6 +118,7 @@ static char *chord_table[] = {
 
 int chord_db = -1;
 int bold = 0;
+int prev_chord = 0;
 
 static inline void
 proc_line(char *line, size_t linelen, int t)
@@ -126,6 +127,14 @@ proc_line(char *line, size_t linelen, int t)
 	int not_bolded = 1;
 
 	line[linelen - 1] = '\0';
+	if (prev_chord || !*line) {
+		prev_chord = 0;
+		printf("%s\n", line);
+		return;
+	}
+
+	prev_chord = 1;
+
 	for (register char *s = line; *s; s++) {
 		if (*s == ' ') {
 			putchar(' ');
@@ -144,21 +153,27 @@ proc_line(char *line, size_t linelen, int t)
 			chord = SHASH_GET(chord_db, s);
 		}
 
-		if (chord == HASH_NOT_FOUND) {
-			printf("%s", line);
-			return;
-		} else if (bold && not_bolded) {
-			printf("<b>");
-			not_bolded = 0;
+		if (not_bolded) {
+			if (chord == HASH_NOT_FOUND) {
+				printf("%s", line);
+				break;
+			} else if (bold) {
+				printf("<b>");
+				not_bolded = 0;
+			}
 		}
 
 		chord = (chord + t) % 22;
 		printf("%s", chord_table[chord]);
+
+		if (!space_after)
+			break;
 	}
 
 	if (!not_bolded)
 		printf("</b>");
 
+	not_bolded = 1;
 	putchar('\n');
 }
 
