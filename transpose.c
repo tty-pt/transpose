@@ -185,20 +185,20 @@ proc_line(char *line, size_t linelen, int t)
 		char *new_cstr = chord_str(chord);
 		int len = strlen(buf);
 		int diff = strlen(new_cstr) - len;
-		/* fprintf(stderr, "%s -> %s (%d) EOC: %s\n", buf, new_cstr, diff, eoc); */
+		int modlen;
+
 		memset(buf, 0, sizeof(buf));
+		modlen = space_after ? space_after - eoc : strlen(eoc);
+		strncpy(buf, eoc, modlen);
 
-		if (space_after) {
-			int odiff = space_after - eoc;
-			strncpy(buf, eoc, odiff);
-		} else
-			strcpy(buf, eoc);
+		int add = diff > 0 ? 1 : -1;
 
-		s = eoc + strlen(buf) - 1;
-		int add = diff < 0 ? 1 : -1;
-		while (*(s - add) == ' ' && diff) { s -= add; diff += add; }
+		memset(s, ' ', len + modlen);
+		s = eoc + modlen + diff - 1;
+
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
+
 		printf("%s%s", new_cstr, buf);
 	}
 
