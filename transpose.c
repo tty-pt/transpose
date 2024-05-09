@@ -86,29 +86,58 @@ hash_del(int hd, void *key_r, size_t len)
 
 void
 hash_table(int hd, char *table[]) {
-	for (size_t i = 0; table[i]; i++)
-		hash_put(hd, table[i], strlen(table[i]), i);
+	for (size_t i = 0; table[i]; i++) {
+		char *str = table[i];
+		size_t len = strlen(str);
+		hash_put(hd, str, len, i);
+		str += len;
+		if (*str)
+			hash_put(hd, str, strlen(str), i);
+	}
 }
 
-static char *chord_table[] = {
+static char *chromatic_en[] = {
 	"C",
-	"C#",
+	"C#\0Db",
 	"D",
-	"D#",
+	"D#\0Eb",
 	"E",
 	"F",
-	"F#",
+	"F#\0Gb",
 	"G",
-	"G#",
+	"G#\0Ab",
 	"A",
-	"A#",
+	"A#\0Bb",
 	"B",
+	NULL,
+}, *chromatic_latin[] = {
+	"Do",
+	"Do#\0Reb",
+	"Re",
+	"Re#\0Mib",
+	"Mi",
+	"Fa",
+	"Fa#\0Solb",
+	"Sol",
+	"Sol#\0Lab",
+	"La",
+	"La#\0Sib",
+	"Si",
 	NULL,
 };
 
+static char **i18n_chord_table = chromatic_en;
 int chord_db = -1;
-int bold = 0;
+int bold = 0, bemol = 0;
 int prev_chord = 0;
+
+static inline char *
+chord_str(size_t chord) {
+	register char *str = i18n_chord_table[chord];
+	if (bemol && strchr(str, '#'))
+		str += strlen(str) + 1;
+	return str;
+}
 
 static inline void
 proc_line(char *line, size_t linelen, int t)
@@ -132,7 +161,7 @@ proc_line(char *line, size_t linelen, int t)
 		}
 
 		register char
-			*eoc = s + (s[1] == '#' ? 2 : 1),
+			*eoc = s + (s[1] == '#' || s[1] == 'b' ? 2 : 1),
 			 *space_after = strchr(eoc, ' ');
 
 		register size_t chord;
@@ -153,14 +182,24 @@ proc_line(char *line, size_t linelen, int t)
 
 		chord = (chord + t) % 12;
 
+		char *new_cstr = chord_str(chord);
+		int len = strlen(buf);
+		int diff = strlen(new_cstr) - len;
+		/* fprintf(stderr, "%s -> %s (%d) EOC: %s\n", buf, new_cstr, diff, eoc); */
+		memset(buf, 0, sizeof(buf));
+
 		if (space_after) {
-			strncpy(buf, eoc, (space_after - eoc) + 1);
-			printf("%s%s", chord_table[chord], buf);
-			s = space_after - 1;
-		} else {
-			printf("%s%s", chord_table[chord], eoc);
-			break;
-		}
+			int odiff = space_after - eoc;
+			strncpy(buf, eoc, odiff);
+		} else
+			strcpy(buf, eoc);
+
+		s = eoc + strlen(buf) - 1;
+		int add = diff < 0 ? 1 : -1;
+		while (*(s - add) == ' ' && diff) { s -= add; diff += add; }
+		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
+			buf[0] = '-';
+		printf("%s%s", new_cstr, buf);
 	}
 
 	if (bold && !not_bolded)
@@ -179,16 +218,21 @@ int main(int argc, char *argv[]) {
 
 	chord_db = hash_init();
 
-	while ((c = getopt(argc, argv, "t:b")) != -1) switch (c) {
-		case 'b':
+	while ((c = getopt(argc, argv, "t:Bbl")) != -1) switch (c) {
+		case 'B':
 			  bold = 1;
+			  break;
+		case 'b':
+			  bemol = 1;
+			  break;
+		case 'l':
+			  i18n_chord_table = chromatic_latin;
 			  break;
 		case 't':
 			  t = atoi(optarg);
 	}
 
-
-	hash_table(chord_db, chord_table);
+	hash_table(chord_db, chromatic_en);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
 		proc_line(line, linelen, t);
