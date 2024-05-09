@@ -92,27 +92,17 @@ hash_table(int hd, char *table[]) {
 
 static char *chord_table[] = {
 	"C",
-	"Cm",
 	"C#",
-	"C#m",
 	"D",
-	"Dm",
-	"D#m",
+	"D#",
 	"E",
-	"Em",
 	"F",
-	"Fm",
 	"F#",
-	"F#m",
 	"G",
-	"Gm",
-	"G#m",
+	"G#",
 	"A",
-	"Am",
 	"A#",
-	"A#m",
 	"B",
-	"Bm",
 	NULL,
 };
 
@@ -141,17 +131,15 @@ proc_line(char *line, size_t linelen, int t)
 			continue;
 		}
 
-		register char *space_after = strchr(s, ' ');
+		register char
+			*eoc = s + (s[1] == '#' ? 2 : 1),
+			 *space_after = strchr(eoc, ' ');
+
 		register size_t chord;
 
-		if (space_after) {
-			memset(buf, 0, sizeof(buf));
-			strncpy(buf, s, space_after - s);
-			chord = SHASH_GET(chord_db, buf);
-			s = space_after - 1;
-		} else {
-			chord = SHASH_GET(chord_db, s);
-		}
+		memset(buf, 0, sizeof(buf));
+		strncpy(buf, s, eoc - s);
+		chord = SHASH_GET(chord_db, buf);
 
 		if (not_bolded) {
 			if (chord == HASH_NOT_FOUND) {
@@ -163,14 +151,19 @@ proc_line(char *line, size_t linelen, int t)
 			}
 		}
 
-		chord = (chord + t) % 22;
-		printf("%s", chord_table[chord]);
+		chord = (chord + t) % 12;
 
-		if (!space_after)
+		if (space_after) {
+			strncpy(buf, eoc, (space_after - eoc) + 1);
+			printf("%s%s", chord_table[chord], buf);
+			s = space_after - 1;
+		} else {
+			printf("%s%s", chord_table[chord], eoc);
 			break;
+		}
 	}
 
-	if (!not_bolded)
+	if (bold && !not_bolded)
 		printf("</b>");
 
 	not_bolded = 1;
