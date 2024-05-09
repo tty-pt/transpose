@@ -170,14 +170,15 @@ proc_line(char *line, size_t linelen, int t)
 		strncpy(buf, s, eoc - s);
 		chord = SHASH_GET(chord_db, buf);
 
-		if (not_bolded) {
-			if (chord == HASH_NOT_FOUND) {
+		if (chord == HASH_NOT_FOUND) {
+			if (s == line)
 				printf("%s", line);
-				break;
-			} else if (bold) {
-				printf("<b>");
-				not_bolded = 0;
-			}
+			break;
+		}
+
+		if (not_bolded && bold) {
+			printf("<b>");
+			not_bolded = 0;
 		}
 
 		chord = (chord + t) % 12;
@@ -190,9 +191,6 @@ proc_line(char *line, size_t linelen, int t)
 		memset(buf, 0, sizeof(buf));
 		modlen = space_after ? space_after - eoc : strlen(eoc);
 		strncpy(buf, eoc, modlen);
-
-		int add = diff > 0 ? 1 : -1;
-
 		memset(s, ' ', len + modlen);
 		s = eoc + modlen + diff - 1;
 
