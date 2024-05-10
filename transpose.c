@@ -234,6 +234,9 @@ int main(int argc, char *argv[]) {
 			  t = atoi(optarg);
 	}
 
+	if (t < 0)
+		t += (1 + (t / 12)) * 12;
+
 	hash_table(chord_db, chromatic_en);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
