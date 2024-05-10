@@ -154,9 +154,10 @@ proc_line(char *line, size_t linelen, int t)
 
 	prev_chord = 1;
 
-	for (register char *s = line; *s; s++) {
+	for (register char *s = line; *s;) {
 		if (*s == ' ') {
 			putchar(' ');
+			s++;
 			continue;
 		}
 
@@ -188,11 +189,14 @@ proc_line(char *line, size_t linelen, int t)
 		int diff = strlen(new_cstr) - len;
 		int modlen;
 
-		memset(buf, 0, sizeof(buf));
 		modlen = space_after ? space_after - eoc : strlen(eoc);
+		memset(buf, 0, sizeof(buf));
 		strncpy(buf, eoc, modlen);
 		memset(s, ' ', len + modlen);
 		s = eoc + modlen + diff - 1;
+
+		if (*s == ' ')
+			s++;
 
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
