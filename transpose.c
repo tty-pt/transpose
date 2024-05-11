@@ -2,6 +2,7 @@
 #include <err.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/queue.h>
 
 #ifdef __OpenBSD__
 #include <db4/db.h>
@@ -15,6 +16,14 @@
 
 #define HASH_DBS_MAX 256
 #define HASH_NOT_FOUND ((size_t) -1)
+
+struct space_queue {
+	unsigned len;
+	unsigned start;
+	TAILQ_ENTRY(space_queue) entries;
+};
+
+TAILQ_HEAD(queue_head, space_queue) queue;
 
 DB *hash_dbs[HASH_DBS_MAX];
 
@@ -142,27 +151,27 @@ chord_str(size_t chord) {
 static inline void
 proc_line(char *line, size_t linelen, int t)
 {
-	static char buf[8], c;
+	char buf[8], c, *s = line;
 	int not_bolded = 1;
+	unsigned j = 0;
+	unsigned not_chords = 0;
 
 	line[linelen - 1] = '\0';
-	if (prev_chord || !*line) {
-		prev_chord = 0;
-		printf("%s\n", line);
-		return;
-	}
+	if (prev_chord)
+		goto no_chord;
 
-	prev_chord = 1;
-
-	for (register char *s = line; *s;) {
+	for (s = line; *s;) {
 		if (*s == ' ') {
 			putchar(' ');
 			s++;
+			j++;
 			continue;
 		}
 
+		int notflat = s[1] != '#' && s[1] != 'b';
+
 		register char
-			*eoc = s + (s[1] == '#' || s[1] == 'b' ? 2 : 1),
+			*eoc = s + (!notflat ? 2 : 1),
 			 *space_after = strchr(eoc, ' ');
 
 		register size_t chord;
@@ -171,11 +180,10 @@ proc_line(char *line, size_t linelen, int t)
 		strncpy(buf, s, eoc - s);
 		chord = SHASH_GET(chord_db, buf);
 
-		if (chord == HASH_NOT_FOUND) {
-			if (s == line)
-				printf("%s", line);
-			break;
-		}
+		if (chord == HASH_NOT_FOUND)
+			goto no_chord;
+
+		prev_chord = 1;
 
 		if (not_bolded && bold) {
 			printf("<b>");
@@ -187,27 +195,66 @@ proc_line(char *line, size_t linelen, int t)
 		char *new_cstr = chord_str(chord);
 		int len = strlen(buf);
 		int diff = strlen(new_cstr) - len;
-		int modlen;
+		int modlen, i;
 
 		modlen = space_after ? space_after - eoc : strlen(eoc);
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, eoc, modlen);
-		memset(s, ' ', len + modlen);
-		s = eoc + modlen + diff - 1;
+		j += eoc - s + modlen;
+		s = eoc + modlen;
+		char *is = s;
 
-		if (*s == ' ')
-			s++;
+		for (i = 0; i < diff && *s == ' '; i++, s++, j++) ;
+
+		if (*s == '\0')
+			for (i = 0; i < diff; i++, j++) ;
 
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
 
 		printf("%s%s", new_cstr, buf);
+
+		if (*s != ' ' && s + 1 < line + linelen) {
+			putchar(' ');
+			diff++;
+		}
+
+		if (i < diff) {
+			struct space_queue *new_element = malloc(sizeof(struct space_queue));
+			new_element->len = diff - i;
+			new_element->start = j;
+			j += diff - i;
+			TAILQ_INSERT_TAIL(&queue, new_element, entries);
+		}
 	}
 
 	if (bold && !not_bolded)
 		printf("</b>");
 
 	not_bolded = 1;
+	putchar('\n');
+	return;
+
+no_chord:
+	prev_chord = 0;
+	j = 0;
+	for (s = line; *s;) {
+		if (!TAILQ_EMPTY(&queue)) {
+			struct space_queue *first = TAILQ_FIRST(&queue);
+			if (j >= first->start) {
+				while (j < first->start + first->len) {
+					putchar('-');
+					j++;
+				}
+				struct space_queue *first = TAILQ_FIRST(&queue);
+				TAILQ_REMOVE(&queue, first, entries);
+				free(first);
+			}
+		}
+		putchar(*s);
+		s++;
+		j++;
+	}
 	putchar('\n');
 }
 
@@ -238,6 +285,7 @@ int main(int argc, char *argv[]) {
 		t += (1 + (t / 12)) * 12;
 
 	hash_table(chord_db, chromatic_en);
+	TAILQ_INIT(&queue);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
 		proc_line(line, linelen, t);
