@@ -288,7 +288,7 @@ int main(int argc, char *argv[]) {
 	if (t < 0)
 		t += (1 + (t / 12)) * 12;
 
-	setlocale(LC_ALL, "");
+	setlocale(LC_ALL, "en_US.UTF-8");
 	hash_table(chord_db, chromatic_en);
 	TAILQ_INIT(&queue);
 
