@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/queue.h>
+#include <wchar.h>
+#include <locale.h>
 
 #ifdef __OpenBSD__
 #include <db4/db.h>
@@ -151,6 +153,7 @@ chord_str(size_t chord) {
 static inline void
 proc_line(char *line, size_t linelen, int t)
 {
+	static wchar_t wline[BUFSIZ], *ws;
 	char buf[8], c, *s = line;
 	int not_bolded = 1;
 	unsigned j = 0;
@@ -162,7 +165,7 @@ proc_line(char *line, size_t linelen, int t)
 
 	for (s = line; *s;) {
 		if (*s == ' ') {
-			putchar(' ');
+			putwchar(' ');
 			s++;
 			j++;
 			continue;
@@ -212,10 +215,10 @@ proc_line(char *line, size_t linelen, int t)
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
 
-		printf("%s%s", new_cstr, buf);
+		wprintf(L"%s%s", new_cstr, buf);
 
 		if (*s != ' ' && s + 1 < line + linelen) {
-			putchar(' ');
+			putwchar(' ');
 			diff++;
 		}
 
@@ -232,18 +235,19 @@ proc_line(char *line, size_t linelen, int t)
 		printf("</b>");
 
 	not_bolded = 1;
-	putchar('\n');
+	putwchar('\n');
 	return;
 
 no_chord:
+	mbstowcs(wline, line, sizeof(wline));
 	prev_chord = 0;
 	j = 0;
-	for (s = line; *s;) {
+	for (ws = wline; *ws;) {
 		if (!TAILQ_EMPTY(&queue)) {
 			struct space_queue *first = TAILQ_FIRST(&queue);
 			if (j >= first->start) {
 				while (j < first->start + first->len) {
-					putchar('-');
+					putwchar(*(ws - 1) == ' ' ? ' ' : '-');
 					j++;
 				}
 				struct space_queue *first = TAILQ_FIRST(&queue);
@@ -251,11 +255,11 @@ no_chord:
 				free(first);
 			}
 		}
-		putchar(*s);
-		s++;
+		putwchar(*ws);
+		ws++;
 		j++;
 	}
-	putchar('\n');
+	putwchar('\n');
 }
 
 int main(int argc, char *argv[]) {
@@ -284,6 +288,7 @@ int main(int argc, char *argv[]) {
 	if (t < 0)
 		t += (1 + (t / 12)) * 12;
 
+	setlocale(LC_ALL, "");
 	hash_table(chord_db, chromatic_en);
 	TAILQ_INIT(&queue);
 
