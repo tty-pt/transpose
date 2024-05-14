@@ -30,6 +30,8 @@ TAILQ_HEAD(queue_head, space_queue) queue;
 DB *hash_dbs[HASH_DBS_MAX];
 
 size_t hash_n = 0;
+wchar_t chorus[BUFSIZ], *chorus_p = chorus;
+int reading_chorus = 0, skip_empty = 0;
 
 int
 hash_init()
@@ -163,9 +165,27 @@ proc_line(char *line, size_t linelen, int t)
 	if (prev_chord)
 		goto no_chord;
 
+	if (skip_empty && !strcmp(line, "")) {
+		skip_empty = 0;
+		return;
+	} else if (!strcmp(line, "-- Chorus")) {
+		wprintf(L"%ls", chorus);
+		return;
+	} else if (!strcmp(line, "-- Chorus start")) {
+		skip_empty = 1;
+		reading_chorus = 1;
+		return;
+	} else if (!strcmp(line, "-- Chorus end")) {
+		skip_empty = 1;
+		reading_chorus = 0;
+		return;
+	}
+
 	for (s = line; *s;) {
 		if (*s == ' ') {
 			putwchar(' ');
+			if (reading_chorus)
+				*chorus_p++ = L' ';
 			s++;
 			j++;
 			continue;
@@ -189,7 +209,9 @@ proc_line(char *line, size_t linelen, int t)
 		prev_chord = 1;
 
 		if (not_bolded && bold) {
-			printf("<b>");
+			wprintf(L"<b>");
+			if (reading_chorus)
+				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<b>");
 			not_bolded = 0;
 		}
 
@@ -216,9 +238,13 @@ proc_line(char *line, size_t linelen, int t)
 			buf[0] = '-';
 
 		wprintf(L"%s%s", new_cstr, buf);
+		if (reading_chorus)
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"%s%s", new_cstr, buf);
 
 		if (*s != ' ' && s + 1 < line + linelen) {
 			putwchar(' ');
+			if (reading_chorus)
+				*chorus_p++ = L' ';
 			diff++;
 		}
 
@@ -231,11 +257,16 @@ proc_line(char *line, size_t linelen, int t)
 		}
 	}
 
-	if (bold && !not_bolded)
-		printf("</b>");
+	if (bold && !not_bolded) {
+		wprintf(L"</b>");
+		if (reading_chorus)
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</b>");
+	}
 
 	not_bolded = 1;
 	putwchar('\n');
+	if (reading_chorus)
+		*chorus_p++ = L'\n';
 	return;
 
 no_chord:
@@ -247,7 +278,10 @@ no_chord:
 			struct space_queue *first = TAILQ_FIRST(&queue);
 			if (j >= first->start) {
 				while (j < first->start + first->len) {
-					putwchar(*(ws - 1) == ' ' ? ' ' : '-');
+					wchar_t c = *(ws - 1) == ' ' ? ' ' : '-';
+					putwchar(c);
+					if (reading_chorus)
+						*chorus_p++ = c;
 					j++;
 				}
 				struct space_queue *first = TAILQ_FIRST(&queue);
@@ -256,10 +290,15 @@ no_chord:
 			}
 		}
 		putwchar(*ws);
+		if (reading_chorus) {
+			*chorus_p++ = *ws;
+		}
 		ws++;
 		j++;
 	}
 	putwchar('\n');
+	if (reading_chorus)
+		*chorus_p++ = L'\n';
 }
 
 int main(int argc, char *argv[]) {
