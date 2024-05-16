@@ -141,7 +141,7 @@ static char *chromatic_en[] = {
 
 static char **i18n_chord_table = chromatic_en;
 int chord_db = -1;
-int bold = 0, bemol = 0;
+int html = 0, bemol = 0;
 int prev_chord = 0;
 
 static inline char *
@@ -208,7 +208,7 @@ proc_line(char *line, size_t linelen, int t)
 
 		prev_chord = 1;
 
-		if (not_bolded && bold) {
+		if (not_bolded && html) {
 			wprintf(L"<b>");
 			if (reading_chorus)
 				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<b>");
@@ -257,22 +257,35 @@ proc_line(char *line, size_t linelen, int t)
 		}
 	}
 
-	if (bold && !not_bolded) {
+	if (html && s == line) {
+		wprintf(L"<div></div>");
+		if (reading_chorus)
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div></div>");
+	}
+
+	if (html && !not_bolded) {
 		wprintf(L"</b>");
 		if (reading_chorus)
 			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</b>");
 	}
 
 	not_bolded = 1;
-	putwchar('\n');
-	if (reading_chorus)
-		*chorus_p++ = L'\n';
+	if (!html) {
+		putwchar('\n');
+		if (reading_chorus)
+			*chorus_p++ = L'\n';
+	}
 	return;
 
 no_chord:
 	mbstowcs(wline, line, sizeof(wline));
 	prev_chord = 0;
 	j = 0;
+	if (html) {
+		wprintf(L"<div>");
+		if (reading_chorus)
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div>");
+	}
 	for (ws = wline; *ws;) {
 		if (!TAILQ_EMPTY(&queue)) {
 			struct space_queue *first = TAILQ_FIRST(&queue);
@@ -296,8 +309,11 @@ no_chord:
 		ws++;
 		j++;
 	}
-	putwchar('\n');
-	if (reading_chorus)
+	if (html) {
+		wprintf(L"</div>");
+		if (reading_chorus)
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</div>");
+	} else if (reading_chorus)
 		*chorus_p++ = L'\n';
 }
 
@@ -310,9 +326,9 @@ int main(int argc, char *argv[]) {
 
 	chord_db = hash_init();
 
-	while ((c = getopt(argc, argv, "t:Bbl")) != -1) switch (c) {
-		case 'B':
-			  bold = 1;
+	while ((c = getopt(argc, argv, "t:hbl")) != -1) switch (c) {
+		case 'h':
+			  html = 1;
 			  break;
 		case 'b':
 			  bemol = 1;
