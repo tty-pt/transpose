@@ -258,9 +258,9 @@ proc_line(char *line, size_t linelen, int t)
 	}
 
 	if (html && s == line) {
-		wprintf(L"<div></div>");
+		wprintf(L"<div> </div>");
 		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div></div>");
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div> </div>");
 	}
 
 	if (html && !not_bolded) {
