@@ -258,9 +258,9 @@ proc_line(char *line, size_t linelen, int t)
 	}
 
 	if (html && s == line) {
-		wprintf(L"<div></div>");
+		wprintf(L"<div> </div>");
 		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div></div>");
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div> </div>");
 	}
 
 	if (html && !not_bolded) {
@@ -271,7 +271,7 @@ proc_line(char *line, size_t linelen, int t)
 
 	not_bolded = 1;
 	if (!html) {
-		putwchar('\n');
+		putwchar(L'\n');
 		if (reading_chorus)
 			*chorus_p++ = L'\n';
 	}
@@ -313,8 +313,11 @@ no_chord:
 		wprintf(L"</div>");
 		if (reading_chorus)
 			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</div>");
-	} else if (reading_chorus)
-		*chorus_p++ = L'\n';
+	} else {
+		putwchar(L'\n');
+		if (reading_chorus)
+			*chorus_p++ = L'\n';
+	}
 }
 
 int main(int argc, char *argv[]) {
