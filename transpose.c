@@ -13,8 +13,8 @@
 #endif
 
 #define SHASH_INIT			hash_init
-#define SHASH_GET(hd, key)		hash_get(hd, key, strlen(key))
-#define SHASH_DEL(hd, key)		hash_del(hd, key, strlen(key))
+#define SHASH_GET(hd, key)		hash_get(hd, key, sizeof(wchar_t) * wcslen(key))
+#define SHASH_DEL(hd, key)		hash_del(hd, key, sizeof(wchar_t) * wcslen(key))
 
 #define HASH_DBS_MAX 256
 #define HASH_NOT_FOUND ((size_t) -1)
@@ -98,71 +98,72 @@ hash_del(int hd, void *key_r, size_t len)
 }
 
 void
-hash_table(int hd, char *table[]) {
+hash_table(int hd, wchar_t *table[]) {
 	for (size_t i = 0; table[i]; i++) {
-		char *str = table[i];
-		size_t len = strlen(str);
+		wchar_t *str = table[i];
+		size_t len = wcslen(str);
 		hash_put(hd, str, len, i);
 		str += len;
 		if (*str)
-			hash_put(hd, str, strlen(str), i);
+			hash_put(hd, str, wcslen(str), i);
 	}
 }
 
-static char *chromatic_en[] = {
-	"C",
-	"C#\0Db",
-	"D",
-	"D#\0Eb",
-	"E",
-	"F",
-	"F#\0Gb",
-	"G",
-	"G#\0Ab",
-	"A",
-	"A#\0Bb",
-	"B",
+static wchar_t *chromatic_en[] = {
+	L"C",
+	L"C#\0Db",
+	L"D",
+	L"D#\0Eb",
+	L"E",
+	L"F",
+	L"F#\0Gb",
+	L"G",
+	L"G#\0Ab",
+	L"A",
+	L"A#\0Bb",
+	L"B",
 	NULL,
 }, *chromatic_latin[] = {
-	"Do",
-	"Do#\0Reb",
-	"Re",
-	"Re#\0Mib",
-	"Mi",
-	"Fa",
-	"Fa#\0Solb",
-	"Sol",
-	"Sol#\0Lab",
-	"La",
-	"La#\0Sib",
-	"Si",
+	L"Do",
+	L"Do#\0Reb",
+	L"Re",
+	L"Re#\0Mib",
+	L"Mi",
+	L"Fa",
+	L"Fa#\0Solb",
+	L"Sol",
+	L"Sol#\0Lab",
+	L"La",
+	L"La#\0Sib",
+	L"Si",
 	NULL,
 };
 
-static char **i18n_chord_table = chromatic_en;
+static wchar_t **i18n_chord_table = chromatic_en;
 int chord_db = -1;
 int html = 0, bemol = 0;
 int prev_chord = 0;
 
-static inline char *
+static inline wchar_t *
 chord_str(size_t chord) {
-	register char *str = i18n_chord_table[chord];
-	if (bemol && strchr(str, '#'))
-		str += strlen(str) + 1;
+	register wchar_t *str = i18n_chord_table[chord];
+	if (bemol && wcschr(str, L'#'))
+		str += wcslen(str) + 1;
 	return str;
 }
 
 static inline void
-proc_line(char *line, size_t linelen, int t)
+proc_line(wchar_t *wline, size_t linelen, int t)
 {
-	static wchar_t wline[BUFSIZ], *ws = wline;
+	/* static wchar_t wline[BUFSIZ], *ws = wline; */
+	wchar_t *ws = wline;
 	wchar_t buf[8], c;
 	int not_bolded = 1;
 	unsigned j = 0;
 	unsigned not_chords = 0;
 
-	line[linelen - 1] = '\0';
-	mbstowcs(wline, line, sizeof(wline));
+	wline[linelen - 1] = '\0';
+	/* mbstowcs(wline, line, sizeof(wline)); */
 	if (prev_chord)
 		goto no_chord;
 
@@ -202,7 +203,7 @@ proc_line(char *line, size_t linelen, int t)
 
 		memset(buf, 0, sizeof(buf));
 		wcsncpy(buf, ws, eoc - ws);
-		chord = SHASH_GET(chord_db, (char *) buf);
+		chord = SHASH_GET(chord_db, buf);
 
 		if (chord == HASH_NOT_FOUND)
 			goto no_chord;
@@ -218,9 +219,9 @@ proc_line(char *line, size_t linelen, int t)
 
 		chord = (chord + t) % 12;
 
-		char *new_cstr = chord_str(chord);
+		wchar_t *new_cstr = chord_str(chord);
 		int len = wcslen(buf);
-		int diff = strlen(new_cstr) - len;
+		int diff = wcslen(new_cstr) - len;
 		int modlen, i;
 
 		modlen = space_after ? space_after - eoc : wcslen(eoc);
@@ -279,7 +280,6 @@ proc_line(char *line, size_t linelen, int t)
 	return;
 
 no_chord:
-	/* mbstowcs(wline, line, sizeof(wline)); */
 	prev_chord = 0;
 	j = 0;
 	if (html) {
@@ -321,9 +321,26 @@ no_chord:
 	}
 }
 
+ssize_t wgetline(wchar_t **line_r, size_t *line_l, FILE *ign) {
+	static wchar_t line[BUFSIZ], *s = line;
+	ssize_t i = 0;
+	memset(line, 0, sizeof(line));
+	for (i = 0, s = line; (*s = fgetwc(ign)) != L'\n'; s++, i++) {
+		if (*s == L'\0' || *s < 0) {
+			*line_l = i;
+			*line_r = line;
+			return -1;
+		}
+	}
+	s++; i++;
+	*line_r = line;
+	*line_l = i;
+	return i;
+}
+
 int main(int argc, char *argv[]) {
-	char *line = NULL;
-	char buf[8], c;
+	wchar_t *line = NULL;
+	char c;
 	ssize_t linelen;
 	size_t linesize;
 	int t = 1;
@@ -349,9 +366,9 @@ int main(int argc, char *argv[]) {
 
 	setlocale(LC_ALL, "");
 	/* setlocale(LC_ALL, "en_US.UTF-8"); */
-	hash_table(chord_db, (char **) chromatic_en);
+	hash_table(chord_db, chromatic_en);
 	TAILQ_INIT(&queue);
 
-	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
+	while ((linelen = wgetline(&line, &linesize, stdin)) >= 0)
 		proc_line(line, linelen, t);
 }
