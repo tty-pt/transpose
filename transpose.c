@@ -155,53 +155,54 @@ chord_str(size_t chord) {
 static inline void
 proc_line(char *line, size_t linelen, int t)
 {
-	static wchar_t wline[BUFSIZ], *ws;
-	char buf[8], c, *s = line;
+	static wchar_t wline[BUFSIZ], *ws = wline;
+	wchar_t buf[8], c;
 	int not_bolded = 1;
 	unsigned j = 0;
 	unsigned not_chords = 0;
 
 	line[linelen - 1] = '\0';
+	mbstowcs(wline, line, sizeof(wline));
 	if (prev_chord)
 		goto no_chord;
 
-	if (skip_empty && !strcmp(line, "")) {
+	if (skip_empty && !wcscmp(wline, L"")) {
 		skip_empty = 0;
 		return;
-	} else if (!strcmp(line, "-- Chorus")) {
+	} else if (!wcscmp(wline, L"-- Chorus")) {
 		wprintf(L"%ls", chorus);
 		return;
-	} else if (!strcmp(line, "-- Chorus start")) {
+	} else if (!wcscmp(wline, L"-- Chorus start")) {
 		skip_empty = 1;
 		reading_chorus = 1;
 		return;
-	} else if (!strcmp(line, "-- Chorus end")) {
+	} else if (!wcscmp(wline, L"-- Chorus end")) {
 		skip_empty = 1;
 		reading_chorus = 0;
 		return;
 	}
 
-	for (s = line; *s;) {
-		if (*s == ' ') {
-			putwchar(' ');
+	for (ws = wline; *ws;) {
+		if (*ws == L' ') {
+			putwchar(L' ');
 			if (reading_chorus)
 				*chorus_p++ = L' ';
-			s++;
+			ws++;
 			j++;
 			continue;
 		}
 
-		int notflat = s[1] != '#' && s[1] != 'b';
+		int notflat = ws[1] != L'#' && ws[1] != L'b';
 
-		register char
-			*eoc = s + (!notflat ? 2 : 1),
-			 *space_after = strchr(eoc, ' ');
+		register wchar_t
+			*eoc = ws + (!notflat ? 2 : 1),
+			*space_after = wcschr(eoc, L' ');
 
 		register size_t chord;
 
 		memset(buf, 0, sizeof(buf));
-		strncpy(buf, s, eoc - s);
-		chord = SHASH_GET(chord_db, buf);
+		wcsncpy(buf, ws, eoc - ws);
+		chord = SHASH_GET(chord_db, (char *) buf);
 
 		if (chord == HASH_NOT_FOUND)
 			goto no_chord;
@@ -218,31 +219,31 @@ proc_line(char *line, size_t linelen, int t)
 		chord = (chord + t) % 12;
 
 		char *new_cstr = chord_str(chord);
-		int len = strlen(buf);
+		int len = wcslen(buf);
 		int diff = strlen(new_cstr) - len;
 		int modlen, i;
 
-		modlen = space_after ? space_after - eoc : strlen(eoc);
+		modlen = space_after ? space_after - eoc : wcslen(eoc);
 		memset(buf, 0, sizeof(buf));
-		strncpy(buf, eoc, modlen);
-		j += eoc - s + modlen;
-		s = eoc + modlen;
-		char *is = s;
+		wcsncpy(buf, eoc, modlen);
+		j += eoc - ws + modlen;
+		ws = eoc + modlen;
+		wchar_t *is = ws;
 
-		for (i = 0; i < diff && *s == ' '; i++, s++, j++) ;
+		for (i = 0; i < diff && *ws == ' '; i++, ws++, j++) ;
 
-		if (*s == '\0')
+		if (*ws == '\0')
 			for (i = 0; i < diff; i++, j++) ;
 
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
 
-		wprintf(L"%s%s", new_cstr, buf);
+		wprintf(L"%s%ls", new_cstr, buf);
 		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"%s%s", new_cstr, buf);
+			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"%s%ls", new_cstr, buf);
 
-		if (*s != ' ' && s + 1 < line + linelen) {
-			putwchar(' ');
+		if (*ws != L' ' && ws + 1 < wline + linelen) {
+			putwchar(L' ');
 			if (reading_chorus)
 				*chorus_p++ = L' ';
 			diff++;
@@ -257,7 +258,7 @@ proc_line(char *line, size_t linelen, int t)
 		}
 	}
 
-	if (html && s == line) {
+	if (html && ws == wline) {
 		wprintf(L"<div> </div>");
 		if (reading_chorus)
 			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div> </div>");
@@ -278,7 +279,7 @@ proc_line(char *line, size_t linelen, int t)
 	return;
 
 no_chord:
-	mbstowcs(wline, line, sizeof(wline));
+	/* mbstowcs(wline, line, sizeof(wline)); */
 	prev_chord = 0;
 	j = 0;
 	if (html) {
@@ -291,7 +292,7 @@ no_chord:
 			struct space_queue *first = TAILQ_FIRST(&queue);
 			if (j >= first->start) {
 				while (j < first->start + first->len) {
-					wchar_t c = *(ws - 1) == ' ' ? ' ' : '-';
+					wchar_t c = *(ws - 1) == L' ' ? L' ' : L'-';
 					putwchar(c);
 					if (reading_chorus)
 						*chorus_p++ = c;
@@ -313,8 +314,11 @@ no_chord:
 		wprintf(L"</div>");
 		if (reading_chorus)
 			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</div>");
-	} else if (reading_chorus)
-		*chorus_p++ = L'\n';
+	} else {
+		putwchar(L'\n');
+		if (reading_chorus)
+			*chorus_p++ = L'\n';
+	}
 }
 
 int main(int argc, char *argv[]) {
@@ -343,8 +347,9 @@ int main(int argc, char *argv[]) {
 	if (t < 0)
 		t += (1 + (t / 12)) * 12;
 
-	setlocale(LC_ALL, "en_US.UTF-8");
-	hash_table(chord_db, chromatic_en);
+	setlocale(LC_ALL, "");
+	/* setlocale(LC_ALL, "en_US.UTF-8"); */
+	hash_table(chord_db, (char **) chromatic_en);
 	TAILQ_INIT(&queue);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
