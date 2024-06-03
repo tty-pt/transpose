@@ -141,7 +141,7 @@ static char *chromatic_en[] = {
 
 static char **i18n_chord_table = chromatic_en;
 int chord_db = -1;
-int html = 0, bemol = 0;
+int html = 0, bemol = 0, hide_chords = 0;
 int prev_chord = 0;
 
 static inline char *
@@ -162,10 +162,7 @@ proc_line(char *line, size_t linelen, int t)
 	unsigned not_chords = 0;
 
 	line[linelen - 1] = '\0';
-	if (prev_chord)
-		goto no_chord;
-
-	if (skip_empty && !strcmp(line, "")) {
+	if ((skip_empty || reading_chorus) && !strcmp(line, "")) {
 		skip_empty = 0;
 		return;
 	} else if (!strcmp(line, "-- Chorus")) {
@@ -178,14 +175,24 @@ proc_line(char *line, size_t linelen, int t)
 	} else if (!strcmp(line, "-- Chorus end")) {
 		skip_empty = 1;
 		reading_chorus = 0;
+		if (!html) {
+			putwchar(L'\n');
+			if (reading_chorus)
+				*chorus_p++ = L'\n';
+		}
 		return;
 	}
 
+	if (prev_chord)
+		goto no_chord;
+
 	for (s = line; *s;) {
 		if (*s == ' ') {
-			putwchar(' ');
-			if (reading_chorus)
-				*chorus_p++ = L' ';
+			if (!hide_chords) {
+				putwchar(' ');
+				if (reading_chorus)
+					*chorus_p++ = L' ';
+			}
 			s++;
 			j++;
 			continue;
@@ -195,7 +202,7 @@ proc_line(char *line, size_t linelen, int t)
 
 		register char
 			*eoc = s + (!notflat ? 2 : 1),
-			 *space_after = strchr(eoc, ' ');
+			*space_after = strchr(eoc, ' ');
 
 		register size_t chord;
 
@@ -207,6 +214,9 @@ proc_line(char *line, size_t linelen, int t)
 			goto no_chord;
 
 		prev_chord = 1;
+
+		if (hide_chords)
+			return;
 
 		if (not_bolded && html) {
 			wprintf(L"<b>");
@@ -325,16 +335,19 @@ int main(int argc, char *argv[]) {
 	char buf[8], c;
 	ssize_t linelen;
 	size_t linesize;
-	int t = 1;
+	int t = 0;
 
 	chord_db = hash_init();
 
-	while ((c = getopt(argc, argv, "t:hbl")) != -1) switch (c) {
+	while ((c = getopt(argc, argv, "t:hblC")) != -1) switch (c) {
 		case 'h':
 			  html = 1;
 			  break;
 		case 'b':
 			  bemol = 1;
+			  break;
+		case 'C':
+			  hide_chords = 1;
 			  break;
 		case 'l':
 			  i18n_chord_table = chromatic_latin;
