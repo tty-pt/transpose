@@ -141,7 +141,7 @@ static char *chromatic_en[] = {
 
 static char **i18n_chord_table = chromatic_en;
 int chord_db = -1;
-int html = 0, bemol = 0, hide_chords = 0;
+int html = 0, bemol = 0, hide_chords = 0, hide_lyrics = 0;
 int prev_chord = 0;
 
 static inline char *
@@ -162,11 +162,12 @@ proc_line(char *line, size_t linelen, int t)
 	unsigned not_chords = 0;
 
 	line[linelen - 1] = '\0';
-	if ((skip_empty || reading_chorus) && !strcmp(line, "")) {
+	if (skip_empty && !strcmp(line, "")) {
 		skip_empty = 0;
 		return;
 	} else if (!strcmp(line, "-- Chorus")) {
 		wprintf(L"%ls", chorus);
+		skip_empty = 1;
 		return;
 	} else if (!strcmp(line, "-- Chorus start")) {
 		skip_empty = 1;
@@ -175,40 +176,51 @@ proc_line(char *line, size_t linelen, int t)
 	} else if (!strcmp(line, "-- Chorus end")) {
 		skip_empty = 1;
 		reading_chorus = 0;
-		if (!html) {
-			putwchar(L'\n');
-			if (reading_chorus)
-				*chorus_p++ = L'\n';
-		}
 		return;
 	}
 
 	if (prev_chord)
 		goto no_chord;
 
+	int no_space = 1, has_chords = 0;
 	for (s = line; *s;) {
-		if (*s == ' ') {
-			if (!hide_chords) {
-				putwchar(' ');
+		if (*s == ' ' || *s == '/') {
+			char what = *s;
+			if (hide_lyrics) {
+				if (no_space && has_chords) {
+					putwchar(what);
+					if (reading_chorus)
+						*chorus_p++ = what;
+					no_space = 0;
+					continue;
+				}
+			} else if (!hide_chords) {
+				putwchar(what);
 				if (reading_chorus)
-					*chorus_p++ = L' ';
+					*chorus_p++ = what;
 			}
 			s++;
 			j++;
 			continue;
 		}
+		no_space = 1;
 
 		int notflat = s[1] != '#' && s[1] != 'b';
 
 		register char
 			*eoc = s + (!notflat ? 2 : 1),
-			*space_after = strchr(eoc, ' ');
+			*space_after = strchr(eoc, ' '),
+			*slash_after = strchr(eoc, '/');
+
+		if (slash_after && (!space_after || space_after > slash_after))
+			space_after = slash_after;
 
 		register size_t chord;
 
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, s, eoc - s);
 		chord = SHASH_GET(chord_db, buf);
+		has_chords = 1;
 
 		if (chord == HASH_NOT_FOUND)
 			goto no_chord;
@@ -251,7 +263,7 @@ proc_line(char *line, size_t linelen, int t)
 		if (reading_chorus)
 			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"%s%s", new_cstr, buf);
 
-		if (*s != ' ' && s + 1 < line + linelen) {
+		if (*s != ' ' && *s != '/' && s + 1 < line + linelen) {
 			putwchar(' ');
 			if (reading_chorus)
 				*chorus_p++ = L' ';
@@ -267,24 +279,25 @@ proc_line(char *line, size_t linelen, int t)
 		}
 	}
 
-	if (html && s == line) {
-		wprintf(L"<div> </div>");
-		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div> </div>");
-	}
-
-	if (html && !not_bolded) {
-		wprintf(L"</b>");
-		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</b>");
-	}
-
-	not_bolded = 1;
-	if (!html) {
+	if (html) {
+		if (!not_bolded) {
+			wprintf(L"</b>");
+			if (reading_chorus)
+				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</b>");
+		}
+		if (s == line) {
+			wprintf(L"<div> </div>");
+			if (reading_chorus)
+				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div> </div>");
+		}
+	} else {
 		putwchar(L'\n');
 		if (reading_chorus)
 			*chorus_p++ = L'\n';
 	}
+
+
+	not_bolded = 1;
 	return;
 
 no_chord:
@@ -296,6 +309,8 @@ no_chord:
 		if (reading_chorus)
 			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div>");
 	}
+	if (hide_lyrics)
+		return;
 	for (ws = wline; *ws;) {
 		if (!TAILQ_EMPTY(&queue)) {
 			struct space_queue *first = TAILQ_FIRST(&queue);
@@ -339,7 +354,7 @@ int main(int argc, char *argv[]) {
 
 	chord_db = hash_init();
 
-	while ((c = getopt(argc, argv, "t:hblC")) != -1) switch (c) {
+	while ((c = getopt(argc, argv, "t:hblCL")) != -1) switch (c) {
 		case 'h':
 			  html = 1;
 			  break;
@@ -351,6 +366,9 @@ int main(int argc, char *argv[]) {
 			  break;
 		case 'l':
 			  i18n_chord_table = chromatic_latin;
+			  break;
+		case 'L':
+			  hide_lyrics = 1;
 			  break;
 		case 't':
 			  t = atoi(optarg);
