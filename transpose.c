@@ -1,9 +1,12 @@
+// TODO use qhash
 #include <stddef.h>
 #include <err.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/queue.h>
 #include <wchar.h>
+#include <ctype.h>
+#include <wctype.h>
 #include <locale.h>
 
 #ifdef __OpenBSD__
@@ -142,7 +145,6 @@ static char *chromatic_en[] = {
 static char **i18n_chord_table = chromatic_en;
 int chord_db = -1;
 int html = 0, bemol = 0, hide_chords = 0, hide_lyrics = 0;
-int prev_chord = 0;
 
 static inline char *
 chord_str(size_t chord) {
@@ -179,26 +181,29 @@ proc_line(char *line, size_t linelen, int t)
 		return;
 	}
 
-	if (prev_chord)
-		goto no_chord;
+	wchar_t outbuf[BUFSIZ], *o = outbuf;
 
 	int no_space = 1, has_chords = 0;
 	for (s = line; *s;) {
-		if (*s == ' ' || *s == '/') {
+		if (*s == ' ' || *s == '/' || isdigit(*s)) {
+			if (isdigit(*s)) {
+				if (*(s + 1) == '.')
+					goto no_chord;
+
+				if (html && not_bolded) {
+					o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>");
+					not_bolded = 0;
+				}
+			}
 			char what = *s;
 			if (hide_lyrics) {
 				if (no_space && has_chords) {
-					putwchar(what);
-					if (reading_chorus)
-						*chorus_p++ = what;
+					*o++ = what;
 					no_space = 0;
 					continue;
 				}
-			} else if (!hide_chords) {
-				putwchar(what);
-				if (reading_chorus)
-					*chorus_p++ = what;
-			}
+			} else if (!hide_chords)
+				*o++ = what;
 			s++;
 			j++;
 			continue;
@@ -212,6 +217,22 @@ proc_line(char *line, size_t linelen, int t)
 			*space_after = strchr(eoc, ' '),
 			*slash_after = strchr(eoc, '/');
 
+		switch (*eoc) {
+			case ' ':
+			case '\n':
+			case '\0':
+			case '7':
+			case '6':
+			case '9':
+			case '1':
+			case '/':
+			case 'm': break;
+			default:
+				  if (!strncmp(eoc, "sus", 3) || !strncmp(eoc, "add", 3))
+						  break;
+				  goto no_chord;
+		}
+
 		if (slash_after && (!space_after || space_after > slash_after))
 			space_after = slash_after;
 
@@ -222,18 +243,16 @@ proc_line(char *line, size_t linelen, int t)
 		chord = SHASH_GET(chord_db, buf);
 		has_chords = 1;
 
-		if (chord == HASH_NOT_FOUND)
+		if (chord == HASH_NOT_FOUND) {
+			o = outbuf;
 			goto no_chord;
-
-		prev_chord = 1;
+		}
 
 		if (hide_chords)
 			return;
 
 		if (not_bolded && html) {
-			wprintf(L"<b>");
-			if (reading_chorus)
-				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<b>");
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>");
 			not_bolded = 0;
 		}
 
@@ -259,14 +278,10 @@ proc_line(char *line, size_t linelen, int t)
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
 
-		wprintf(L"%s%s", new_cstr, buf);
-		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"%s%s", new_cstr, buf);
+		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%s%s", new_cstr, buf);
 
 		if (*s != ' ' && *s != '/' && s + 1 < line + linelen) {
-			putwchar(' ');
-			if (reading_chorus)
-				*chorus_p++ = L' ';
+			*o++ = L' ';
 			diff++;
 		}
 
@@ -280,46 +295,43 @@ proc_line(char *line, size_t linelen, int t)
 	}
 
 	if (html) {
-		if (!not_bolded) {
-			wprintf(L"</b>");
-			if (reading_chorus)
-				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</b>");
-		}
-		if (s == line) {
-			wprintf(L"<div> </div>");
-			if (reading_chorus)
-				chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div> </div>");
-		}
-	} else {
-		putwchar(L'\n');
-		if (reading_chorus)
-			*chorus_p++ = L'\n';
-	}
+		if (!not_bolded)
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>\n");
+		if (s == line)
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<div> </div>");
+	} else
+		*o++ = L'\n';
 
 
 	not_bolded = 1;
-	return;
+	goto end;
 
 no_chord:
 	mbstowcs(wline, line, sizeof(wline));
-	prev_chord = 0;
 	j = 0;
-	if (html) {
-		wprintf(L"<div>");
-		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"<div>");
-	}
+	o = outbuf;
 	if (hide_lyrics)
 		return;
-	for (ws = wline; *ws;) {
+	ws = wline;
+	if (html) {
+		if (!not_bolded) {
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>");
+			not_bolded = 1;
+		}
+
+		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<div>");
+		if (iswdigit(*ws)) {
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>%lc</b>", *ws);
+			ws++;
+		}
+	}
+	for (; *ws;) {
 		if (!TAILQ_EMPTY(&queue)) {
 			struct space_queue *first = TAILQ_FIRST(&queue);
 			if (j >= first->start) {
 				while (j < first->start + first->len) {
 					wchar_t c = *(ws - 1) == ' ' ? ' ' : '-';
-					putwchar(c);
-					if (reading_chorus)
-						*chorus_p++ = c;
+					*o++ = c;
 					j++;
 				}
 				struct space_queue *first = TAILQ_FIRST(&queue);
@@ -327,21 +339,21 @@ no_chord:
 				free(first);
 			}
 		}
-		putwchar(*ws);
-		if (reading_chorus) {
-			*chorus_p++ = *ws;
-		}
+		*o++ = *ws;
 		ws++;
 		j++;
 	}
-	if (html) {
-		wprintf(L"</div>");
-		if (reading_chorus)
-			chorus_p += swprintf(chorus_p, sizeof(chorus) - (chorus_p - chorus), L"</div>");
-	} else {
-		putwchar(L'\n');
-		if (reading_chorus)
-			*chorus_p++ = L'\n';
+	if (html)
+		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</div>");
+	else
+		*o++ = L'\n';
+
+end:
+	*o = '\0';
+	wprintf(L"%ls", outbuf);
+	if (reading_chorus) {
+		memcpy(chorus_p, outbuf, (o + 1 - outbuf) * sizeof(wchar_t));
+		chorus_p += o - outbuf;
 	}
 }
 
