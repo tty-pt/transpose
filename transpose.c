@@ -106,7 +106,7 @@ hash_table(int hd, char *table[]) {
 		char *str = table[i];
 		size_t len = strlen(str);
 		hash_put(hd, str, len, i);
-		str += len;
+		str += len + 1;
 		if (*str)
 			hash_put(hd, str, strlen(str), i);
 	}
@@ -161,7 +161,6 @@ proc_line(char *line, size_t linelen, int t)
 	char buf[8], c, *s = line;
 	int not_bolded = 1;
 	unsigned j = 0;
-	unsigned not_chords = 0;
 
 	line[linelen - 1] = '\0';
 	if (skip_empty && !strcmp(line, "")) {
@@ -181,20 +180,26 @@ proc_line(char *line, size_t linelen, int t)
 		return;
 	}
 
-	wchar_t outbuf[BUFSIZ], *o = outbuf;
+	wchar_t outbuf[BUFSIZ], *so = outbuf, *o = outbuf;
 
+	if (html) {
+		so += swprintf(so, sizeof(outbuf) - (so - outbuf), L"<div>");
+		if (isdigit(*line)) {
+			char *dot = strchr(s, '.');
+			if (!dot)
+				goto end;
+
+			size_t len = dot - line;
+
+			so += swprintf(so, sizeof(outbuf) - (so - outbuf), L"<b>%.*s</b>", len, line);
+			s = line + len;
+		}
+	}
+
+	o = so;
 	int no_space = 1, has_chords = 0;
-	for (s = line; *s;) {
-		if (*s == ' ' || *s == '/' || isdigit(*s)) {
-			if (isdigit(*s)) {
-				if (*(s + 1) == '.')
-					goto no_chord;
-
-				if (html && not_bolded) {
-					o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>");
-					not_bolded = 0;
-				}
-			}
+	for (; *s;) {
+		if (*s == ' ' || *s == '/') {
 			char what = *s;
 			if (hide_lyrics) {
 				if (no_space && has_chords) {
@@ -208,6 +213,7 @@ proc_line(char *line, size_t linelen, int t)
 			j++;
 			continue;
 		}
+
 		no_space = 1;
 
 		int notflat = s[1] != '#' && s[1] != 'b';
@@ -221,14 +227,10 @@ proc_line(char *line, size_t linelen, int t)
 			case ' ':
 			case '\n':
 			case '\0':
-			case '7':
-			case '6':
-			case '9':
-			case '1':
 			case '/':
 			case 'm': break;
 			default:
-				  if (!strncmp(eoc, "sus", 3) || !strncmp(eoc, "add", 3))
+				  if (isdigit(*eoc) || !strncmp(eoc, "sus", 3) || !strncmp(eoc, "add", 3))
 						  break;
 				  goto no_chord;
 		}
@@ -248,14 +250,6 @@ proc_line(char *line, size_t linelen, int t)
 			goto no_chord;
 		}
 
-		if (hide_chords)
-			return;
-
-		if (not_bolded && html) {
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>");
-			not_bolded = 0;
-		}
-
 		chord = (chord + t) % 12;
 
 		char *new_cstr = chord_str(chord);
@@ -264,6 +258,17 @@ proc_line(char *line, size_t linelen, int t)
 		int modlen, i;
 
 		modlen = space_after ? space_after - eoc : strlen(eoc);
+
+		if (hide_chords) {
+			s = eoc + modlen;
+			continue;
+		}
+
+		if (not_bolded && html) {
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>");
+			not_bolded = 0;
+		}
+
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, eoc, modlen);
 		j += eoc - s + modlen;
@@ -294,22 +299,12 @@ proc_line(char *line, size_t linelen, int t)
 		}
 	}
 
-	if (html) {
-		if (!not_bolded)
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>\n");
-		if (s == line)
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<div> </div>");
-	} else
-		*o++ = L'\n';
-
-
-	not_bolded = 1;
 	goto end;
 
 no_chord:
-	mbstowcs(wline, line, sizeof(wline));
+	mbstowcs(wline, s, sizeof(wline));
 	j = 0;
-	o = outbuf;
+	o = so;
 	if (hide_lyrics)
 		return;
 	ws = wline;
@@ -317,12 +312,6 @@ no_chord:
 		if (!not_bolded) {
 			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>");
 			not_bolded = 1;
-		}
-
-		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<div>");
-		if (iswdigit(*ws)) {
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>%lc</b>", *ws);
-			ws++;
 		}
 	}
 	for (; *ws;) {
@@ -343,12 +332,18 @@ no_chord:
 		ws++;
 		j++;
 	}
-	if (html)
-		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</div>");
-	else
-		*o++ = L'\n';
 
 end:
+	if (html) {
+		if (!not_bolded) {
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>");
+			not_bolded = 1;
+		}
+		if (o - outbuf < 6 && !has_chords)
+			*o++ = L' ';
+		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</div>");
+	} else
+		*o++ = L'\n';
 	*o = '\0';
 	wprintf(L"%ls", outbuf);
 	if (reading_chorus) {
