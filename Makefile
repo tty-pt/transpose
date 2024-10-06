@@ -2,9 +2,9 @@ DESTDIR ?= ../../../../
 INSTALL_DEP ?= ${DESTDIR}make_dep.sh
 PREFIX ?= usr
 
-LDFLAGS := -L/usr/lib -L/usr/local/lib
-CFLAGS := -I/usr/include -I/usr/local/include
-LDLIBS := -ldb
+LDFLAGS := -L/usr/local/lib
+CFLAGS := -I/usr/local/include
+LDLIBS := -lqhash -ldb
 UNAME != uname
 LD-Linux := gcc
 LD-OpenBSD := clang

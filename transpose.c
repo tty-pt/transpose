@@ -1,19 +1,15 @@
 // TODO use qhash
-#include <stddef.h>
-#include <err.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/queue.h>
-#include <wchar.h>
 #include <ctype.h>
-#include <wctype.h>
+#include <err.h>
 #include <locale.h>
-
-#ifdef __OpenBSD__
-#include <db4/db.h>
-#else
-#include <db.h>
-#endif
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/queue.h>
+#include <unistd.h>
+#include <wchar.h>
+#include <wctype.h>
+#include <qhash.h>
 
 #define SHASH_INIT			hash_init
 #define SHASH_GET(hd, key)		hash_get(hd, key, strlen(key))
@@ -30,87 +26,9 @@ struct space_queue {
 
 TAILQ_HEAD(queue_head, space_queue) queue;
 
-DB *hash_dbs[HASH_DBS_MAX];
-
 size_t hash_n = 0;
 wchar_t chorus[BUFSIZ], *chorus_p = chorus;
 int reading_chorus = 0, skip_empty = 0;
-
-int
-hash_init()
-{
-	DB **db = &hash_dbs[hash_n];
-	if (db_create(db, NULL, 0) || (*db)->open(*db, NULL, NULL, NULL, DB_HASH, DB_CREATE, 0644))
-		err(1, "hash_init");
-	return hash_n++;
-}
-
-void
-hash_put(int hd, void *key_r, size_t key_len, size_t id)
-{
-	DB *db = hash_dbs[hd];
-	DBT key, data;
-
-	memset(&key, 0, sizeof(DBT));
-	memset(&data, 0, sizeof(DBT));
-
-	key.data = (void *) key_r;
-	key.size = key_len;
-	data.data = &id;
-	data.size = sizeof(size_t);
-
-	if (db->put(db, NULL, &key, &data, 0))
-		err(1, "hash_put");
-}
-
-size_t
-hash_get(int hd, void *key_r, size_t key_len)
-{
-	DB *db = hash_dbs[hd];
-	DBT key, data;
-	int ret;
-
-	memset(&key, 0, sizeof(key));
-	memset(&data, 0, sizeof(data));
-
-	key.data = (void *) key_r;
-	key.size = key_len;
-
-	ret = db->get(db, NULL, &key, &data, 0);
-
-	if (ret == DB_NOTFOUND)
-		return -1;
-	else if (ret)
-		err(1, "hash_get");
-
-	return * (size_t *) data.data;
-}
-
-void
-hash_del(int hd, void *key_r, size_t len)
-{
-	DB *db = hash_dbs[hd];
-	DBT key;
-
-	memset(&key, 0, sizeof(key));
-	key.data = key_r;
-	key.size = len;
-
-	if (db->del(db, NULL, &key, 0))
-		err(1, "hash_del");
-}
-
-void
-hash_table(int hd, char *table[]) {
-	for (size_t i = 0; table[i]; i++) {
-		char *str = table[i];
-		size_t len = strlen(str);
-		hash_put(hd, str, len, i);
-		str += len + 1;
-		if (*str)
-			hash_put(hd, str, strlen(str), i);
-	}
-}
 
 static char *chromatic_en[] = {
 	"C",
@@ -238,18 +156,17 @@ proc_line(char *line, size_t linelen, int t)
 		if (slash_after && (!space_after || space_after > slash_after))
 			space_after = slash_after;
 
-		register size_t chord;
+		unsigned chord;
 
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, s, eoc - s);
-		chord = SHASH_GET(chord_db, buf);
-		has_chords = 1;
 
-		if (chord == HASH_NOT_FOUND) {
+		if (shash_get(chord_db, &chord, buf)) {
 			o = outbuf;
 			goto no_chord;
 		}
 
+		has_chords = 1;
 		chord = (chord + t) % 12;
 
 		char *new_cstr = chord_str(chord);
@@ -385,7 +302,7 @@ int main(int argc, char *argv[]) {
 		t += (1 + (t / 12)) * 12;
 
 	setlocale(LC_ALL, "en_US.UTF-8");
-	hash_table(chord_db, chromatic_en);
+	suhash_table(chord_db, chromatic_en);
 	TAILQ_INIT(&queue);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
