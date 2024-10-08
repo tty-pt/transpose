@@ -1,25 +1,18 @@
-DESTDIR ?= ../../../../
-INSTALL_DEP ?= ${DESTDIR}make_dep.sh
+include env.mk
 PREFIX ?= usr
 
-LDFLAGS := -L/usr/local/lib
-CFLAGS := -I/usr/local/include
-LDLIBS := -lqhash -ldb
-UNAME != uname
-LD-Linux := gcc
-LD-OpenBSD := clang
-LD := ${LD-${UNAME}}
+LDFLAGS += -L/usr/local/lib
+CFLAGS += -I/usr/local/include
 
-transp: transpose.c
-	${LD} -o $@ transpose.c ${LDFLAGS} ${LDLIBS} ${CFLAGS}
+$(exe): $(exe).c
+	${CC} -o $@ $(exe).c ${LDFLAGS} ${CFLAGS}
 
-$(DESTDIR)$(PREFIX)/bin/transp: transp
-	install -m 755 transp $@
-	${INSTALL_DEP} ${@:${DESTDIR}%=%}
+$(DESTDIR)$(PREFIX)/bin/$(exe): $(exe)
+	install -m 755 $(exe) $@
 
 install: ${DESTDIR}${PREFIX}/bin/transp
 
 clean:
-	rm transp || true
+	rm $(exe) || true
 
 .PHONY: install clean

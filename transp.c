@@ -2,14 +2,15 @@
 #include <ctype.h>
 #include <err.h>
 #include <locale.h>
+#include <qhash.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/queue.h>
 #include <unistd.h>
 #include <wchar.h>
 #include <wctype.h>
-#include <qhash.h>
 
 #define SHASH_INIT			hash_init
 #define SHASH_GET(hd, key)		hash_get(hd, key, strlen(key))
