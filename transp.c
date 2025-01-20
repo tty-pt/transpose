@@ -1,8 +1,8 @@
-// TODO use qhash
 #include <ctype.h>
 #include <err.h>
 #include <locale.h>
 #include <qhash.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,13 +12,6 @@
 #include <wchar.h>
 #include <wctype.h>
 
-#define SHASH_INIT			hash_init
-#define SHASH_GET(hd, key)		hash_get(hd, key, strlen(key))
-#define SHASH_DEL(hd, key)		hash_del(hd, key, strlen(key))
-
-#define HASH_DBS_MAX 256
-#define HASH_NOT_FOUND ((size_t) -1)
-
 struct space_queue {
 	unsigned len;
 	unsigned start;
@@ -27,9 +20,17 @@ struct space_queue {
 
 TAILQ_HEAD(queue_head, space_queue) queue;
 
-size_t hash_n = 0;
-wchar_t chorus[BUFSIZ], *chorus_p = chorus;
-int reading_chorus = 0, skip_empty = 0, not_special = 0;
+enum flags {
+	TF_HIDE_CHORDS = 1,
+	TF_HIDE_LYRICS = 2,
+	TF_HTML = 4,
+	TF_BEMOL = 8,
+	TF_REMOVE_COMMENTS = 16,
+	TF_BREAK_SLASH = 32,
+};
+
+int flags = 0;
+int skip_empty = 0, not_special = 0;
 DB_TXN *txnid;
 
 static char *chromatic_en[] = {
@@ -69,14 +70,24 @@ static char *chromatic_en[] = {
 
 static char **i18n_chord_table = chromatic_en;
 int chord_db = -1, special_db = -1;
-int html = 0, bemol = 0, hide_chords = 0, hide_lyrics = 0;
 
 static inline char *
 chord_str(size_t chord) {
 	register char *str = i18n_chord_table[chord];
-	if (bemol && strchr(str, '#'))
+	if ((flags & TF_BEMOL) && strchr(str, '#'))
 		str += strlen(str) + 1;
 	return str;
+}
+
+wchar_t outbuf[BUFSIZ];
+
+static inline int oprintf(wchar_t *so, wchar_t *fmt, ...) {
+	int ret;
+	va_list args;
+	va_start(args, fmt);
+	ret = vswprintf(so, sizeof(outbuf) - (so - outbuf), fmt, args);
+	va_end(args);
+	return ret;
 }
 
 static inline void
@@ -91,51 +102,51 @@ proc_line(char *line, size_t linelen, int t)
 	if (skip_empty && !strcmp(line, "")) {
 		skip_empty = 0;
 		return;
-	} else if (!strcmp(line, "-- Chorus")) {
-		wprintf(L"%ls", chorus);
-		skip_empty = 1;
-		return;
-	} else if (!strcmp(line, "-- Chorus start")) {
-		skip_empty = 1;
-		reading_chorus = 1;
-		return;
-	} else if (!strcmp(line, "-- Chorus end")) {
-		skip_empty = 1;
-		reading_chorus = 0;
-		return;
 	}
 
-	wchar_t outbuf[BUFSIZ], *so = outbuf, *o = outbuf;
+	int si = 0, sim = 0;
+	wchar_t outbuf[BUFSIZ], *o = outbuf;
 
-	if (html) {
-		so += swprintf(so, sizeof(outbuf) - (so - outbuf), L"<div>");
+	if (flags & TF_HTML) {
+		si += oprintf(outbuf + si, L"<div>");
 		if (isdigit(*line)) {
 			char *dot = strchr(s, '.');
 			if (!dot)
 				goto end;
 
 			size_t len = dot + 1 - line;
-
-			so += swprintf(so, sizeof(outbuf) - (so - outbuf), L"<b>%.*s</b>", len, line);
+			sim += len;
+			si += oprintf(outbuf + si, L"<b>%.*s</b>", len, line);
 			s = line + len;
 		}
 	}
 
-	o = so;
+	o = outbuf + si;
 	int no_space = 1, has_chords = 0;
 	for (; *s;) {
 		if (*s == ' ' || *s == '/') {
 			char what = *s;
-			if (hide_lyrics) {
+			if (flags & TF_HIDE_LYRICS) {
 				if (no_space && has_chords) {
 					*o++ = what;
 					no_space = 0;
 					continue;
 				}
-			} else if (!hide_chords)
+			} else if (!(flags & TF_HIDE_CHORDS))
 				*o++ = what;
 			s++;
 			j++;
+			continue;
+		}
+
+		if (*s == '%') {
+			if (flags & TF_REMOVE_COMMENTS)
+				skip_empty = 1;
+			else if (not_bolded && (flags & TF_HTML))
+				o += oprintf(o, L"<b class='comment'>%s</b>", s);
+			else
+				o += oprintf(o, L"%s", s);
+			s += strlen(s);
 			continue;
 		}
 
@@ -173,13 +184,9 @@ proc_line(char *line, size_t linelen, int t)
 			space_after = slash_after;
 
 		if (!is_special) {
-			/* memset(buf, 0, sizeof(buf)); */
 			strncpy(buf, s, eoc - s);
-			if (shash_get(chord_db, &chord, buf)) {
-				o = outbuf;
+			if (shash_get(chord_db, &chord, buf))
 				goto no_chord;
-				/* o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%s", buf); */
-			}
 		}
 
 		char *new_cstr;
@@ -199,19 +206,19 @@ proc_line(char *line, size_t linelen, int t)
 			modlen = space_after ? space_after - eoc : strlen(eoc);
 		}
 
-		if (hide_chords) {
+		if (flags & TF_HIDE_CHORDS) {
 			s = eoc + modlen;
 			continue;
 		}
 
-		if (not_bolded && html) {
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"<b>");
+		if (not_bolded && (flags & TF_HTML)) {
+			o += oprintf(o, L"<b>", s);
 			not_bolded = 0;
 		}
 
 		if (is_special) {
 			s = eoc + modlen;
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%s ", buf);
+			o += oprintf(o, L"%s ", buf);
 			continue;
 		}
 
@@ -228,7 +235,7 @@ proc_line(char *line, size_t linelen, int t)
 		if (buf[0] == 'm' && i18n_chord_table == chromatic_latin)
 			buf[0] = '-';
 
-		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%s%s", new_cstr, buf);
+		o += oprintf(o, L"%s%s", new_cstr, buf);
 
 		if (*s != ' ' && *s != '/' && s + 1 < line + linelen) {
 			*o++ = L' ';
@@ -247,19 +254,19 @@ proc_line(char *line, size_t linelen, int t)
 	goto end;
 
 no_chord:
-	mbstowcs(wline, s, sizeof(wline));
+	swprintf(wline, sizeof(wline), L"%s", line + sim);
 	j = 0;
-	o = so;
-	if (hide_lyrics)
+	o = outbuf + si;
+	if (flags & TF_HIDE_LYRICS)
 		return;
 	ws = wline;
-	if (html) {
-		if (!not_bolded) {
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>");
-			not_bolded = 1;
-		}
+	if ((flags & TF_HTML) && !not_bolded) {
+		o += oprintf(o, L"</b>");
+		not_bolded = 1;
 	}
 	for (; *ws;) {
+		// take differences in chord sizes into consideration.
+		// So that they remain on top of the correct parts of the lyrics.
 		if (!TAILQ_EMPTY(&queue)) {
 			struct space_queue *first = TAILQ_FIRST(&queue);
 			if (j >= first->start) {
@@ -273,28 +280,38 @@ no_chord:
 				free(first);
 			}
 		}
-		*o++ = *ws;
+		if (*ws == L'<') {
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%ls", ws);
+			j = 0;
+			goto end;
+		}
+		if (flags & TF_BREAK_SLASH) {
+			if (*ws == L'/') {
+				ws += 2;
+				*o++ = L'\n';
+				j = 0;
+				continue;
+			} else
+				*o++ = *ws;
+		} else
+			*o++ = *ws;
 		ws++;
 		j++;
 	}
 
 end:
-	if (html) {
+	if (flags & TF_HTML) {
 		if (!not_bolded) {
-			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</b>");
+			o += oprintf(o, L"</b>");
 			not_bolded = 1;
 		}
 		if (o - outbuf < 6 && !has_chords)
 			*o++ = L' ';
-		o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"</div>");
+		o += oprintf(o, L"</div>");
 	} else
 		*o++ = L'\n';
 	*o = '\0';
 	wprintf(L"%ls", outbuf);
-	if (reading_chorus) {
-		memcpy(chorus_p, outbuf, (o + 1 - outbuf) * sizeof(wchar_t));
-		chorus_p += o - outbuf;
-	}
 }
 
 int main(int argc, char *argv[]) {
@@ -307,21 +324,27 @@ int main(int argc, char *argv[]) {
 	chord_db = hash_init();
 	special_db = hash_init();
 
-	while ((c = getopt(argc, argv, "t:hblCL")) != -1) switch (c) {
+	while ((c = getopt(argc, argv, "t:hBblCLc")) != -1) switch (c) {
 		case 'h':
-			  html = 1;
+			  flags |= TF_HTML;
 			  break;
 		case 'b':
-			  bemol = 1;
+			  flags |= TF_BEMOL;
+			  break;
+		case 'B':
+			  flags |= TF_BREAK_SLASH;
+			  break;
+		case 'c':
+			  flags |= TF_REMOVE_COMMENTS;
 			  break;
 		case 'C':
-			  hide_chords = 1;
+			  flags |= TF_HIDE_CHORDS;
 			  break;
 		case 'l':
 			  i18n_chord_table = chromatic_latin;
 			  break;
 		case 'L':
-			  hide_lyrics = 1;
+			  flags |= TF_HIDE_LYRICS;
 			  break;
 		case 't':
 			  t = atoi(optarg);
