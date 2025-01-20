@@ -29,7 +29,8 @@ TAILQ_HEAD(queue_head, space_queue) queue;
 
 size_t hash_n = 0;
 wchar_t chorus[BUFSIZ], *chorus_p = chorus;
-int reading_chorus = 0, skip_empty = 0;
+int reading_chorus = 0, skip_empty = 0, not_special = 0;
+DB_TXN *txnid;
 
 static char *chromatic_en[] = {
 	"C",
@@ -59,10 +60,15 @@ static char *chromatic_en[] = {
 	"La#\0Sib",
 	"Si",
 	NULL,
+}, *special[] = {
+	"|",
+	":",
+	"-",
+	NULL,
 };
 
 static char **i18n_chord_table = chromatic_en;
-int chord_db = -1;
+int chord_db = -1, special_db = -1;
 int html = 0, bemol = 0, hide_chords = 0, hide_lyrics = 0;
 
 static inline char *
@@ -78,7 +84,7 @@ proc_line(char *line, size_t linelen, int t)
 {
 	static wchar_t wline[BUFSIZ], *ws;
 	char buf[8], c, *s = line;
-	int not_bolded = 1;
+	int not_bolded = 1, is_special = 0;
 	unsigned j = 0;
 
 	line[linelen - 1] = '\0';
@@ -108,7 +114,7 @@ proc_line(char *line, size_t linelen, int t)
 			if (!dot)
 				goto end;
 
-			size_t len = dot - line;
+			size_t len = dot + 1 - line;
 
 			so += swprintf(so, sizeof(outbuf) - (so - outbuf), L"<b>%.*s</b>", len, line);
 			s = line + len;
@@ -136,20 +142,29 @@ proc_line(char *line, size_t linelen, int t)
 		no_space = 1;
 
 		int notflat = s[1] != '#' && s[1] != 'b';
+		register char *eoc, *space_after, *slash_after;
 
-		register char
-			*eoc = s + (!notflat ? 2 : 1),
-			*space_after = strchr(eoc, ' '),
-			*slash_after = strchr(eoc, '/');
+		eoc = s + (!notflat ? 2 : 1);
+		space_after = strchr(eoc, ' ');
+		slash_after = strchr(eoc, '/');
 
-		switch (*eoc) {
+		unsigned chord = -1;
+
+		memset(buf, 0, sizeof(buf));
+		strncpy(buf, s, 1);
+
+		if ((is_special = !shash_get(special_db, &chord, buf))) {
+			strncpy(buf, s, space_after ? space_after - s : strlen(s));
+			not_special = 0;
+			chord = -1;
+		} else switch (*eoc) {
 			case ' ':
 			case '\n':
 			case '\0':
 			case '/':
 			case 'm': break;
 			default:
-				  if (isdigit(*eoc) || !strncmp(eoc, "sus", 3) || !strncmp(eoc, "add", 3))
+				  if (isdigit(*eoc) || !strncmp(eoc, "sus", 3) || !strncmp(eoc, "add", 3) || !strncmp(eoc, "maj", 3))
 						  break;
 				  goto no_chord;
 		}
@@ -157,25 +172,32 @@ proc_line(char *line, size_t linelen, int t)
 		if (slash_after && (!space_after || space_after > slash_after))
 			space_after = slash_after;
 
-		unsigned chord;
-
-		memset(buf, 0, sizeof(buf));
-		strncpy(buf, s, eoc - s);
-
-		if (shash_get(chord_db, &chord, buf)) {
-			o = outbuf;
-			goto no_chord;
+		if (!is_special) {
+			/* memset(buf, 0, sizeof(buf)); */
+			strncpy(buf, s, eoc - s);
+			if (shash_get(chord_db, &chord, buf)) {
+				o = outbuf;
+				goto no_chord;
+				/* o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%s", buf); */
+			}
 		}
 
+		char *new_cstr;
+		int len, diff, modlen, i;
+
 		has_chords = 1;
-		chord = (chord + t) % 12;
 
-		char *new_cstr = chord_str(chord);
-		int len = strlen(buf);
-		int diff = strlen(new_cstr) - len;
-		int modlen, i;
-
-		modlen = space_after ? space_after - eoc : strlen(eoc);
+		if (is_special) {
+			new_cstr = s;
+			diff = 0;
+			modlen = strlen(buf);
+		} else {
+			chord = (chord + t) % 12;
+			new_cstr = chord_str(chord);
+			len = strlen(buf);
+			diff = strlen(new_cstr) - len;
+			modlen = space_after ? space_after - eoc : strlen(eoc);
+		}
 
 		if (hide_chords) {
 			s = eoc + modlen;
@@ -187,11 +209,16 @@ proc_line(char *line, size_t linelen, int t)
 			not_bolded = 0;
 		}
 
+		if (is_special) {
+			s = eoc + modlen;
+			o += swprintf(o, sizeof(outbuf) - (o - outbuf), L"%s ", buf);
+			continue;
+		}
+
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, eoc, modlen);
 		j += eoc - s + modlen;
 		s = eoc + modlen;
-		char *is = s;
 
 		for (i = 0; i < diff && *s == ' '; i++, s++, j++) ;
 
@@ -212,8 +239,8 @@ proc_line(char *line, size_t linelen, int t)
 			struct space_queue *new_element = malloc(sizeof(struct space_queue));
 			new_element->len = diff - i;
 			new_element->start = j;
-			j += diff - i;
 			TAILQ_INSERT_TAIL(&queue, new_element, entries);
+			j += diff - i;
 		}
 	}
 
@@ -236,7 +263,7 @@ no_chord:
 		if (!TAILQ_EMPTY(&queue)) {
 			struct space_queue *first = TAILQ_FIRST(&queue);
 			if (j >= first->start) {
-				while (j < first->start + first->len) {
+				if (not_special) while (j < first->start + first->len) {
 					wchar_t c = *(ws - 1) == ' ' ? ' ' : '-';
 					*o++ = c;
 					j++;
@@ -278,6 +305,7 @@ int main(int argc, char *argv[]) {
 	int t = 0;
 
 	chord_db = hash_init();
+	special_db = hash_init();
 
 	while ((c = getopt(argc, argv, "t:hblCL")) != -1) switch (c) {
 		case 'h':
@@ -304,6 +332,7 @@ int main(int argc, char *argv[]) {
 
 	setlocale(LC_ALL, "en_US.UTF-8");
 	suhash_table(chord_db, chromatic_en);
+	suhash_table(special_db, special);
 	TAILQ_INIT(&queue);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
