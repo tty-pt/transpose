@@ -34,32 +34,32 @@ int skip_empty = 0, not_special = 0;
 DB_TXN *txnid;
 
 static char *chromatic_en[] = {
-	"C",
+	"C\0",
 	"C#\0Db",
-	"D",
+	"D\0",
 	"D#\0Eb",
-	"E",
-	"F",
+	"E\0",
+	"F\0",
 	"F#\0Gb",
-	"G",
+	"G\0",
 	"G#\0Ab",
-	"A",
+	"A\0",
 	"A#\0Bb",
-	"B",
+	"B\0",
 	NULL,
 }, *chromatic_latin[] = {
-	"Do",
+	"Do\0",
 	"Do#\0Reb",
-	"Re",
+	"Re\0",
 	"Re#\0Mib",
-	"Mi",
-	"Fa",
+	"Mi\0",
+	"Fa\0",
 	"Fa#\0Solb",
-	"Sol",
+	"Sol\0",
 	"Sol#\0Lab",
-	"La",
+	"La\0",
 	"La#\0Sib",
-	"Si",
+	"Si\0",
 	NULL,
 }, *special[] = {
 	"|",
@@ -164,7 +164,7 @@ proc_line(char *line, size_t linelen, int t)
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, s, 1);
 
-		if ((is_special = !shash_get(special_db, &chord, buf))) {
+		if ((is_special = !qdb_get(special_db, &chord, buf))) {
 			strncpy(buf, s, space_after ? space_after - s : strlen(s));
 			not_special = 0;
 			chord = -1;
@@ -185,7 +185,7 @@ proc_line(char *line, size_t linelen, int t)
 
 		if (!is_special) {
 			strncpy(buf, s, eoc - s);
-			if (shash_get(chord_db, &chord, buf))
+			if (qdb_get(chord_db, &chord, buf))
 				goto no_chord;
 		}
 
@@ -314,15 +314,24 @@ end:
 	wprintf(L"%ls", outbuf);
 }
 
+static inline void tbl_init(unsigned hd, char **table) {
+	for (unsigned u = 0; ; u++) {
+		char *key = table[u], *space;
+		if (!key)
+			break;
+		qdb_put(hd, key, &u);
+		key += strlen(key) + 1;
+		if (*key)
+			qdb_put(hd, key, &u);
+	}
+}
+
 int main(int argc, char *argv[]) {
 	char *line = NULL;
 	char buf[8], c;
 	ssize_t linelen;
 	size_t linesize;
 	int t = 0;
-
-	chord_db = hash_init();
-	special_db = hash_init();
 
 	while ((c = getopt(argc, argv, "t:hBblCLc")) != -1) switch (c) {
 		case 'h':
@@ -353,9 +362,14 @@ int main(int argc, char *argv[]) {
 	if (t < 0)
 		t += (1 + (t / 12)) * 12;
 
+	qdb_init();
+	chord_db = qdb_open(NULL, "s", "u", 0);
+	special_db = qdb_open(NULL, "s", "u", 0);
+
 	setlocale(LC_ALL, "en_US.UTF-8");
-	suhash_table(chord_db, chromatic_en);
-	suhash_table(special_db, special);
+	tbl_init(chord_db, chromatic_en);
+	tbl_init(chord_db, chromatic_latin);
+	tbl_init(special_db, special);
 	TAILQ_INIT(&queue);
 
 	while ((linelen = getline(&line, &linesize, stdin)) >= 0)
