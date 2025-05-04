@@ -1,7 +1,7 @@
 #include <ctype.h>
 #include <err.h>
 #include <locale.h>
-#include <qhash.h>
+#include <qdb.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>

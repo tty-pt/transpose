@@ -1,2 +1,2 @@
-npm-lib := @tty-pt/qhash
-LDFLAGS := -lqhash -ldb
+npm-lib := @tty-pt/qdb
+LDFLAGS := -lqdb -ldb
