@@ -24,14 +24,16 @@ enum flags {
 	TF_HIDE_CHORDS = 1,
 	TF_HIDE_LYRICS = 2,
 	TF_HTML = 4,
-	TF_BEMOL = 8,
+	TF_BEMOL = 8, // bemol instead of sustain
 	TF_REMOVE_COMMENTS = 16,
 	TF_BREAK_SLASH = 32,
+	TF_PRINT_SHIFT = 64, // print different shifts
 };
 
 int flags = 0;
 int skip_empty = 0, not_special = 0;
 DB_TXN *txnid;
+unsigned key = -1;
 
 static char *chromatic_en[] = {
 	"C\0",
@@ -90,11 +92,26 @@ static inline int oprintf(wchar_t *so, wchar_t *fmt, ...) {
 	return ret;
 }
 
+__attribute__((noreturn))
+void shift_print(void) {
+	unsigned i;
+
+	for (i = 0; i < 12; i++) {
+		char *name = i18n_chord_table[i];
+		long t = (long) i - key;
+		if (t < 0)
+			t += 12;
+		printf("%s %ld\n", name, t);
+	}
+
+	exit(EXIT_SUCCESS);	
+}
+
 static inline void
 proc_line(char *line, size_t linelen, int t)
 {
 	static wchar_t wline[BUFSIZ], *ws;
-	char buf[8], c, *s = line;
+	char buf[8], *s = line;
 	int not_bolded = 1, is_special = 0;
 	unsigned j = 0;
 
@@ -200,6 +217,11 @@ proc_line(char *line, size_t linelen, int t)
 			modlen = strlen(buf);
 		} else {
 			chord = (chord + t) % 12;
+			if (key == (unsigned) -1) {
+				key = chord;
+				if (flags & TF_PRINT_SHIFT)
+					shift_print();
+			}
 			new_cstr = chord_str(chord);
 			len = strlen(buf);
 			diff = strlen(new_cstr) - len;
@@ -316,7 +338,7 @@ end:
 
 static inline void tbl_init(unsigned hd, char **table) {
 	for (unsigned u = 0; ; u++) {
-		char *key = table[u], *space;
+		char *key = table[u];
 		if (!key)
 			break;
 		qdb_put(hd, key, &u);
@@ -328,12 +350,12 @@ static inline void tbl_init(unsigned hd, char **table) {
 
 int main(int argc, char *argv[]) {
 	char *line = NULL;
-	char buf[8], c;
+	char c;
 	ssize_t linelen;
 	size_t linesize;
 	int t = 0;
 
-	while ((c = getopt(argc, argv, "t:hBblCLc")) != -1) switch (c) {
+	while ((c = getopt(argc, argv, "t:hBblCLcs")) != -1) switch (c) {
 		case 'h':
 			  flags |= TF_HTML;
 			  break;
@@ -354,6 +376,9 @@ int main(int argc, char *argv[]) {
 			  break;
 		case 'L':
 			  flags |= TF_HIDE_LYRICS;
+			  break;
+		case 's':
+			  flags |= TF_PRINT_SHIFT;
 			  break;
 		case 't':
 			  t = atoi(optarg);

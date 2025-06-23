@@ -1,0 +1,19 @@
+{
+  "name": "@tty-pt/transp",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@tty-pt/mk": "^0.0.13",
+    "@tty-pt/qdb": "^0.0.14"
+  },
+  "peerDependencies": {
+    "@tty-pt/qdb": "^0.0.14"
+  }
+}

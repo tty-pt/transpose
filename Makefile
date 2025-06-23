@@ -1,8 +1,13 @@
 include env.mk
 PREFIX ?= usr
 
+npm-lib := @tty-pt/qdb
+-include node_modules/@tty-pt/mk/include.mk
+-include ../mk/include.mk
+
 LDFLAGS += -L/usr/local/lib
-CFLAGS += -I/usr/local/include
+CFLAGS += -g -I/usr/local/include -Wall -Wextra -pedantic
+exe ?= transp
 
 $(exe): $(exe).c
 	${CC} -o $@ $(exe).c ${LDFLAGS} ${CFLAGS}
