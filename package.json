@@ -11,9 +11,9 @@
   "license": "ISC",
   "devDependencies": {
     "@tty-pt/mk": "^0.0.13",
-    "@tty-pt/qdb": "^0.0.14"
+    "@tty-pt/qdb": "^0.2.6"
   },
   "peerDependencies": {
-    "@tty-pt/qdb": "^0.0.14"
+    "@tty-pt/qdb": "^0.2.6"
   }
 }
