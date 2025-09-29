@@ -176,25 +176,32 @@ proc_line(char *line, size_t linelen, int t)
 		space_after = strchr(eoc, ' ');
 		slash_after = strchr(eoc, '/');
 
+		const unsigned *chord_r;
 		unsigned chord = -1;
 
 		memset(buf, 0, sizeof(buf));
 		strncpy(buf, s, 1);
 
-		if ((is_special = !qdb_get(special_db, &chord, buf))) {
+		chord_r = qmap_get(special_db, buf);
+		if ((is_special = !!chord_r)) {
 			strncpy(buf, s, space_after ? space_after - s : strlen(s));
 			not_special = 0;
 			chord = -1;
-		} else switch (*eoc) {
-			case ' ':
-			case '\n':
-			case '\0':
-			case '/':
-			case 'm': break;
-			default:
-				  if (isdigit(*eoc) || !strncmp(eoc, "sus", 3) || !strncmp(eoc, "add", 3) || !strncmp(eoc, "maj", 3))
+		} else {
+			switch (*eoc) {
+				case ' ':
+				case '\n':
+				case '\0':
+				case '/':
+				case 'm': break;
+				default:
+					  if (isdigit(*eoc) || !strncmp(eoc, "sus", 3)
+							  || !strncmp(eoc, "add", 3)
+							  || !strncmp(eoc, "maj", 3)
+							  || !strncmp(eoc, "dim", 3))
 						  break;
-				  goto no_chord;
+					  goto no_chord;
+			}
 		}
 
 		if (slash_after && (!space_after || space_after > slash_after))
@@ -202,8 +209,10 @@ proc_line(char *line, size_t linelen, int t)
 
 		if (!is_special) {
 			strncpy(buf, s, eoc - s);
-			if (qdb_get(chord_db, &chord, buf))
+			chord_r = qmap_get(chord_db, buf);
+			if (!chord_r)
 				goto no_chord;
+			chord = *chord_r;
 		}
 
 		char *new_cstr;
@@ -341,10 +350,10 @@ static inline void tbl_init(unsigned hd, char **table) {
 		char *key = table[u];
 		if (!key)
 			break;
-		qdb_put(hd, key, &u);
+		qmap_put(hd, key, &u);
 		key += strlen(key) + 1;
 		if (*key)
-			qdb_put(hd, key, &u);
+			qmap_put(hd, key, &u);
 	}
 }
 
@@ -387,9 +396,9 @@ int main(int argc, char *argv[]) {
 	if (t < 0)
 		t += (1 + (t / 12)) * 12;
 
-	qdb_init();
-	chord_db = qdb_open(NULL, "s", "u", 0);
-	special_db = qdb_open(NULL, "s", "u", 0);
+	unsigned unsigned_type = qmap_reg(sizeof(unsigned));
+	chord_db = qmap_open(QM_STR, unsigned_type, 0x1F, 0);
+	special_db = qmap_open(QM_STR, unsigned_type, 0xF, 0);
 
 	setlocale(LC_ALL, "en_US.UTF-8");
 	tbl_init(chord_db, chromatic_en);
