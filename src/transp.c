@@ -402,7 +402,7 @@ int main(int argc, char *argv[]) {
 
 	setlocale(LC_ALL, "en_US.UTF-8");
 	tbl_init(chord_db, chromatic_en);
-	tbl_init(chord_db, chromatic_latin);
+	/* tbl_init(chord_db, chromatic_latin); */
 	tbl_init(special_db, special);
 	TAILQ_INIT(&queue);
 
