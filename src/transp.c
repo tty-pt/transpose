@@ -1,7 +1,6 @@
 #include <ctype.h>
 #include <err.h>
 #include <locale.h>
-#include <qdb.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -10,7 +9,8 @@
 #include <sys/queue.h>
 #include <unistd.h>
 #include <wchar.h>
-#include <wctype.h>
+
+#include <qmap.h>
 
 struct space_queue {
 	unsigned len;
@@ -32,7 +32,6 @@ enum flags {
 
 int flags = 0;
 int skip_empty = 0, not_special = 0;
-DB_TXN *txnid;
 unsigned key = -1;
 
 static char *chromatic_en[] = {
@@ -402,7 +401,7 @@ int main(int argc, char *argv[]) {
 
 	setlocale(LC_ALL, "en_US.UTF-8");
 	tbl_init(chord_db, chromatic_en);
-	tbl_init(chord_db, chromatic_latin);
+	/* tbl_init(chord_db, chromatic_latin); */
 	tbl_init(special_db, special);
 	TAILQ_INIT(&queue);
 
