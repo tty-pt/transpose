@@ -1,3 +1,4 @@
 /transp
 /node_modules
 /bin
+*.o

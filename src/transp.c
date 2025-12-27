@@ -1,7 +1,6 @@
 #include <ctype.h>
 #include <err.h>
 #include <locale.h>
-#include <qdb.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -11,6 +10,7 @@
 #include <unistd.h>
 #include <wchar.h>
 #include <wctype.h>
+#include <ttypt/qmap.h>
 
 struct space_queue {
 	unsigned len;
@@ -32,7 +32,6 @@ enum flags {
 
 int flags = 0;
 int skip_empty = 0, not_special = 0;
-DB_TXN *txnid;
 unsigned key = -1;
 
 static char *chromatic_en[] = {
@@ -397,8 +396,8 @@ int main(int argc, char *argv[]) {
 		t += (1 + (t / 12)) * 12;
 
 	unsigned unsigned_type = qmap_reg(sizeof(unsigned));
-	chord_db = qmap_open(QM_STR, unsigned_type, 0x1F, 0);
-	special_db = qmap_open(QM_STR, unsigned_type, 0xF, 0);
+	chord_db = qmap_open(NULL, NULL, QM_STR, unsigned_type, 0x1F, 0);
+	special_db = qmap_open(NULL, NULL, QM_STR, unsigned_type, 0xF, 0);
 
 	setlocale(LC_ALL, "en_US.UTF-8");
 	tbl_init(chord_db, chromatic_en);

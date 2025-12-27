@@ -1,2 +1,1 @@
-npm-lib := @tty-pt/qmap
-LDFLAGS := -lqmap -ldb
+LDFLAGS := -lqmap
